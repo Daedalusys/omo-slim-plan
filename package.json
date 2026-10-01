@@ -1,0 +1,11 @@
+{
+  "name": "omo-slim-plan",
+  "version": "0.1.0",
+  "description": "Lightweight plan-first workflow for OpenCode + oh-my-opencode-slim: plan → human gate → start-work → acceptance",
+  "type": "module",
+  "license": "MIT",
+  "bin": { "omo-slim-plan": "bin/install.js" },
+  "files": ["bin", "templates", "plugin", "LICENSE", "README.md"],
+  "engines": { "node": ">=18" },
+  "keywords": ["opencode", "oh-my-opencode-slim", "plan", "workflow", "omo-slim"]
+}
