@@ -29,7 +29,7 @@ Lightweight **plan-first** workflow for [OpenCode](https://opencode.ai) + [oh-my
 ```bash
 npx omo-slim-plan
 # or from GitHub
-npx github:<your-org>/omo-slim-pro
+npx github:Daedalusys/omo-slim-plan
 ```
 
 From a local checkout:
