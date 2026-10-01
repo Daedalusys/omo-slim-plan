@@ -17,7 +17,8 @@ Usage:
   node planflow-notify.mjs --event <event> --plan <path> [options]
 
 Options:
-  --event <event>       plan-ready | awaiting-review | task-done | awaiting-acceptance | custom
+  --event <event>       plan-ready | awaiting-review | task-done | awaiting-acceptance | test | custom
+                          (note: --event test bypasses webhook.event filters — used by Telegram first-run setup)
   --plan <path>         plan file path (e.g. .plans/foo.md)
   --title <text>        optional notification title
   --message <text>      optional notification message
@@ -126,6 +127,7 @@ async function main() {
     return 0;
   }
 
+  // event "test" (Telegram setup) bypasses webhook.event filters in providers.send
   const result = await send(cfg, payload);
   const reason = result?.reason || "";
   const notConfigured = !result?.ok && /_not_configured$/.test(reason);

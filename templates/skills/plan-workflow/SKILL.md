@@ -104,6 +104,8 @@ node ~/.config/opencode/plugin/planflow-notify.mjs \
 
 - **notify 失败或 provider 未配置：继续工作流，绝不阻塞**。
 - 也可直接编辑 `~/.config/opencode/planflow.json` 配置 Telegram / generic webhook / command provider。
+- Telegram 首次配置：只需 bot token；chat_id 由用户给 bot 发消息后交互捕获——提示运行 `npx omo-slim-plan --setup-telegram`。chatId 为空时通知会报 `telegram_not_configured`。
+- Telegram 首次配置：只需 bot token；chat_id 由用户给 bot 发消息后交互捕获——提示运行 `npx omo-slim-plan --setup-telegram`。chatId 为空时通知会报 `telegram_not_configured`。
 
 ## Delegation（委派）
 

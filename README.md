@@ -52,36 +52,36 @@ What the installer does:
 
 `OPencode_CONFIG` overrides the config root. `--config <path>` sets it too (directory, or a `planflow.json` path). Existing targets are backed up to `*.bak-<timestamp>` before overwrite. After install: **restart OpenCode**.
 
-## Configure Telegram
+## Configure Telegram (first run)
 
-1. Talk to [@BotFather](https://t.me/BotFather) on Telegram → `/newbot` → copy the **bot token**.
-2. Add the bot to your target chat, then get the **chat id** (e.g. via `https://api.telegram.org/bot<TOKEN>/getUpdates`, or send a message and inspect the response).
-3. Fill in `~/.config/opencode/planflow.json`:
+You only need a **bot token** first. `chat_id` is captured interactively — no manual lookup.
 
-```json
-{
-  "version": 1,
-  "plansDir": ".plans",
-  "webhook": {
-    "provider": "telegram",
-    "telegram": {
-      "botToken": "123456:ABC-your-token",
-      "chatId": "-1001234567890"
-    },
-    "generic": { "url": "", "headers": {} },
-    "command": { "cmd": "" },
-    "events": {
-      "plan-ready": true,
-      "awaiting-review": true,
-      "task-done": false,
-      "awaiting-acceptance": true
-    },
-    "titlePrefix": "[omo-slim-plan]"
-  }
-}
+1. Talk to [@BotFather](https://t.me/BotFather) → `/newbot` → copy the **bot token**.
+2. Install / run setup (chat_id optional on the command line):
+
+```bash
+npx omo-slim-plan --telegram-token "123456:ABC-your-token"
+# re-run anytime
+npx omo-slim-plan --setup-telegram
 ```
 
-Or pass flags at install time:
+3. The installer calls Telegram `getMe`, prints your bot username, and asks you to **message the bot** (any text, e.g. `/start`).
+4. It polls `getUpdates` and shows the captured message:
+
+```text
+捕获到消息:
+  chat_id   : 123456789
+  chat_type : private
+  from      : lofibass (@lofibass)
+  text      : hi
+```
+
+5. Confirm `[Y/n]` → `chat_id` is saved to `~/.config/opencode/planflow.json` (`provider=telegram`).
+6. A test message (`Telegram 配置成功`) is sent to verify the path.
+
+If provider is `telegram` but `chatId` is empty, notifications report `telegram_not_configured` until setup completes — re-run `--setup-telegram`.
+
+Manual config still works: set `webhook.telegram.botToken` + `chatId` in `planflow.json`, or pass both flags:
 
 ```bash
 node bin/install.js --telegram-token "123456:ABC..." --telegram-chat-id "-1001234567890"
@@ -95,6 +95,7 @@ node bin/install.js --telegram-token "123456:ABC..." --telegram-chat-id "-100123
 | `awaiting-review` | on | `/plan-review` starts (oracle review) |
 | `task-done` | off | each todo completed during `/start-work` |
 | `awaiting-acceptance` | on | all Todos + Final checks done |
+| `test` | n/a | setup test notification (always allowed) |
 
 Set any event to `false` to silence it. **A missing/unconfigured provider never blocks the workflow** — notify failures are logged and work continues.
 

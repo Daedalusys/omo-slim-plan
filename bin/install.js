@@ -4,7 +4,11 @@
 // Usage:
 //   node bin/install.js [--dry-run] [--force] [--uninstall]
 //                       [--webhook <url>] [--telegram-token <t>] [--telegram-chat-id <id>]
-//                       [--config <path>]
+//                       [--setup-telegram] [--config <path>]
+//
+// Telegram first-run: pass --telegram-token (or --setup-telegram). After files
+// are installed, the installer can capture chat_id interactively (message the
+// bot → getUpdates → confirm) so users never need to look up chat_id manually.
 //
 // Defaults:
 //   Config root : $OPencode_CONFIG  ||  ~/.config/opencode
@@ -25,12 +29,17 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const COMMAND_FILES = ["plan.md", "start-work.md", "plan-review.md"];
-const PLUGIN_FILES = ["planflow.js", "planflow-notify.mjs", "planflow-providers.mjs"];
+const PLUGIN_FILES = [
+  "planflow.js",
+  "planflow-notify.mjs",
+  "planflow-providers.mjs",
+  "planflow-telegram.mjs",
+];
 const DEFAULT_PLANFLOW = {
   version: 1,
   plansDir: ".plans",
@@ -77,6 +86,7 @@ function parseArgs(argv) {
     webhook: "",
     telegramToken: "",
     telegramChatId: "",
+    setupTelegram: false,
     config: "",
     help: false,
   };
@@ -108,6 +118,10 @@ function parseArgs(argv) {
     }
     if (a === "--uninstall") {
       args.uninstall = true;
+      continue;
+    }
+    if (a === "--setup-telegram") {
+      args.setupTelegram = true;
       continue;
     }
     if (a.startsWith("--") && a.includes("=")) {
@@ -148,7 +162,8 @@ function usage() {
       "  --uninstall               Remove installed files; unregister plugin; keep planflow.json unless --force",
       "  --webhook <url>           generic webhook provider (sets provider=generic, generic.url=<url>)",
       "  --telegram-token <t>      Telegram bot token (sets provider=telegram)",
-      "  --telegram-chat-id <id>   Telegram chat id",
+      "  --telegram-chat-id <id>   Telegram chat id (optional; omit to capture interactively)",
+      "  --setup-telegram          Interactive Telegram setup: message the bot, confirm chat_id",
       "  --config <path>           OpenCode config root (dir) or planflow.json path",
       "  -h, --help                Show help",
       "",
@@ -339,12 +354,20 @@ function removeIfExists(target, dryRun, roots, label) {
   return { removed: true };
 }
 
-function printNextSteps(p) {
+function readPlanflowJsonSafe(planflowPath) {
+  try {
+    return JSON.parse(readFileSync(planflowPath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function printNextSteps(p, setupState) {
   log("");
   log(bold("Next steps:"));
   log("  1. Restart OpenCode so it loads the planflow plugin.");
   log(`  2. Configure Telegram (or generic/command) in ${p.planflowPath}`);
-  log('     - telegram: fill webhook.telegram.botToken + webhook.telegram.chatId');
+  log("     - telegram: npx omo-slim-plan --setup-telegram   (message the bot; chat_id is captured)");
   log("     - generic:  set webhook.provider=generic + webhook.generic.url");
   log("     - command:  set webhook.provider=command + webhook.command.cmd");
   log("  3. In a project, run /plan — AI writes .plans/<slug>.md, then you choose:");
@@ -352,12 +375,68 @@ function printNextSteps(p) {
   log("");
   log(`  Commands installed: ${p.commandDir}/plan.md, start-work.md, plan-review.md`);
   log(`  Skill installed:    ${p.skillDest}`);
-  log(`  Plugin installed:   ${p.pluginDir}/planflow.js (+ planflow-notify.mjs, planflow-providers.mjs)`);
+  log(`  Plugin installed:   ${p.pluginDir}/planflow.js (+ planflow-notify.mjs, planflow-providers.mjs, planflow-telegram.mjs)`);
   log(`  Notify CLI:         ${p.pluginDir}/planflow-notify.mjs`);
   log(`  Plans convention:   .plans/ per project (see templates/plans/README.md; commit plans, not boulder)`);
+  if (setupState) {
+    if (setupState.saved) {
+      log("");
+      log(green(`  Telegram chat_id saved: ${setupState.chatId}`));
+    } else if (setupState.needed) {
+      log("");
+      warn("  Telegram chat_id is empty — run setup to capture it:");
+      log("    npx omo-slim-plan --setup-telegram");
+      log("    # or: node bin/install.js --setup-telegram");
+    }
+  }
 }
 
-function runInstall(args, p) {
+/**
+ * Decide whether interactive Telegram setup should run after install.
+ * Returns { needed, reason }.
+ */
+function evaluateTelegramSetup(args, cfg) {
+  if (args.uninstall) return { needed: false, reason: "skipped" };
+  if (args.setupTelegram) return { needed: true, reason: "flag" };
+  if (args.telegramChatId) return { needed: false, reason: "chat_id_already_set" };
+  const tg = cfg?.webhook?.telegram || {};
+  const provider = cfg?.webhook?.provider || "telegram";
+  const hasToken = Boolean(String(args.telegramToken || tg.botToken || "").trim());
+  const hasChat = Boolean(String(tg.chatId || "").trim());
+  if (provider === "telegram" && hasToken && !hasChat) {
+    return { needed: true, reason: "token_without_chat_id" };
+  }
+  return { needed: false, reason: hasChat ? "chat_id_already_set" : "telegram_not_requested" };
+}
+
+function shouldRunTelegramSetup(args, p, cfg) {
+  if (args.dryRun) return { needed: false, reason: "dry_run" };
+  return evaluateTelegramSetup(args, cfg);
+}
+
+async function runInteractiveTelegramSetup(args, p, plan) {
+  const { runTelegramSetup } = await import(
+    pathToFileURL(path.join(PKG_ROOT, "plugin", "planflow-telegram.mjs")).href
+  );
+  const cfg = readPlanflowJsonSafe(p.planflowPath) || {};
+  const token = String(args.telegramToken || cfg?.webhook?.telegram?.botToken || "").trim();
+  log("");
+  log(bold("Telegram setup:"));
+  if (!process.stdin.isTTY && !token) {
+    warn("stdin is not a TTY and no --telegram-token was provided — skipping interactive setup");
+    log("  re-run: npx omo-slim-plan --setup-telegram --telegram-token <token>");
+    return { needed: true, saved: false, chatId: null, tested: false };
+  }
+  const result = await runTelegramSetup({
+    token,
+    planflowPath: p.planflowPath,
+    log,
+    warn,
+  });
+  return { needed: true, saved: Boolean(result?.saved), chatId: result?.chatId ?? null, tested: Boolean(result?.tested) };
+}
+
+async function runInstall(args, p) {
   log(bold("omo-slim-plan installer"));
   log(cyan("Resolving paths..."));
   log(`  config root : ${p.configRoot}`);
@@ -474,7 +553,16 @@ function runInstall(args, p) {
   }
 
   if (args.dryRun) {
+    const dryCfg = readPlanflowJsonSafe(p.planflowPath) || buildPlanflowConfig(args, null);
+    const setupPreview = evaluateTelegramSetup(args, dryCfg);
     log("");
+    log(cyan("Telegram setup:"));
+    if (setupPreview.needed) {
+      log(`  [dry-run] would run interactive setup (${setupPreview.reason}) — message the bot, confirm chat_id`);
+      log(`  (interactive prompts require a TTY; not executed in dry-run)`);
+    } else {
+      log(`  skipped (${setupPreview.reason})`);
+    }
     log(green("Dry-run complete — nothing was written."));
     return 0;
   }
@@ -483,7 +571,26 @@ function runInstall(args, p) {
     log(green("Uninstall complete. Restart OpenCode to drop the plugin."));
     return 0;
   }
-  printNextSteps(p);
+
+  // --- 10: optional interactive Telegram first-run setup ---
+  const cfgNow = readPlanflowJsonSafe(p.planflowPath) || {};
+  const setupPlan = shouldRunTelegramSetup(args, p, cfgNow);
+  let setupState = null;
+  if (setupPlan.needed) {
+    log(cyan("Telegram setup:"));
+    log(`  reason: ${setupPlan.reason}`);
+    setupState = await runInteractiveTelegramSetup(args, p, setupPlan);
+  } else {
+    log(cyan("Telegram setup:"));
+    log(`  skipped (${setupPlan.reason})`);
+    const tg = cfgNow?.webhook?.telegram || {};
+    const provider = cfgNow?.webhook?.provider || "telegram";
+    if (provider === "telegram" && !String(tg.chatId || "").trim()) {
+      setupState = { needed: true, saved: false, chatId: null, tested: false };
+    }
+  }
+
+  printNextSteps(p, setupState);
   return 0;
 }
 
@@ -546,8 +653,14 @@ function main() {
   }
   try {
     const p = resolvePaths(args);
-    const code = runInstall(args, p);
-    process.exit(code);
+    runInstall(args, p)
+      .then((code) => {
+        process.exit(code);
+      })
+      .catch((e) => {
+        err(e?.message || String(e));
+        process.exit(1);
+      });
   } catch (e) {
     err(e?.message || String(e));
     process.exit(1);

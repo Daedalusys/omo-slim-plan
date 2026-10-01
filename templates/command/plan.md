@@ -43,6 +43,8 @@ description: Explore the request and write a decision-complete plan to .plans/<s
 
    - 若 notify 脚本不在该路径，用实际安装路径（`<configRoot>/plugin/planflow-notify.mjs`）。
    - 若未安装 omo-slim-plan 或未配置 webhook：跳过通知，继续第 7 步。
+   - 若 provider=telegram 且 chatId 为空：提示用户运行 `npx omo-slim-plan --setup-telegram`（首次只需 bot token，chat_id 交互捕获）。
+   - 若 provider=telegram 且 chatId 为空：提示用户运行 `npx omo-slim-plan --setup-telegram`（首次只需 bot token，chat_id 交互捕获）。
 
 7. **停在人工门禁**：用 question 工具向人类提供选项（一次只问这一题）：
    - `start-work <slug>` — 按计划开始执行

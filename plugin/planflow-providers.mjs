@@ -283,7 +283,9 @@ export async function send(config, { event, plan, title, message, remaining, ses
     const p = payloadFor(cfg, { event, plan, title, message, remaining, session });
 
     const events = hook.events || {};
-    if (events[p.event] === false) {
+    // event "test" (Telegram first-run setup) always bypasses webhook.event filters —
+    // it must never be skipped so sendTestNotification() can verify the saved config.
+    if (p.event !== "test" && events[p.event] === false) {
       return { ok: true, skipped: true, provider: providerName };
     }
     if (!provider) {
